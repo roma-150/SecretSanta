@@ -200,7 +200,7 @@
       <ul class="rules">
         <li><span class="ico">🎁</span><div><span id="rule-budget">Budget indicativo: 10 €</span><small>Del nostro meglio, ma senza sforare.</small></div></li>
         <li><span class="ico">🤫</span><div>Vietato rivelare a chi si fa il regalo<small>Nemmeno sotto interrogatorio attorno al fuoco.</small></div></li>
-        <li><span class="ico">🎟️</span><div>Il bigliettino si apre una sola volta<small>Memorizza bene! Se lo perdi, chiedi ad Akela.</small></div></li>
+        <li><span class="ico">🎟️</span><div>Il bigliettino si apre una sola volta dalla home<small>Dalla home una volta sola: memorizza bene! Col link personale ricevuto su WhatsApp, invece, puoi riaprirlo quando vuoi.</small></div></li>
       </ul>
     </div>
 
@@ -232,7 +232,7 @@
     <div class="card" style="text-align:center">
       <h2 id="me-title">Ciao!</h2>
       <div id="me-pre">
-        <div class="warn">⚠️ Il bigliettino si apre <u>una sola volta</u>. Assicurati che nessuno guardi lo schermo.</div>
+        <div class="warn" id="me-warn">⚠️ Il bigliettino si apre <u>una sola volta</u>. Assicurati che nessuno guardi lo schermo.</div>
         <div style="text-align:left">
           <h3>Le tue 3 preferenze (facoltative)</h3>
           <p class="hint" style="margin-top:0">Idee per chi dovrà farti il regalo. Meglio scriverle prima che gli altri aprano il bigliettino.</p>
@@ -480,7 +480,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxzdojPNO9RNenIKsFuDNYU9C
     t+='🎁 Budget indicativo: '+(ev.budget!=null?ev.budget:10)+' €\n';
     if(ev.date && !isNaN(new Date(ev.date))) t+='📅 Scambio: '+fmtDate(ev.date)+(ev.place?' – '+ev.place:'')+'\n';
     t+='🤫 Vietato rivelare a chi fai il regalo!\n';
-    t+=(id?'Apri il tuo bigliettino (si apre UNA sola volta, nessuno deve guardare):\n':'Pesca il tuo bigliettino qui:\n')+link;
+    t+=(id?'Apri il tuo bigliettino con il tuo link personale (puoi riaprirlo quando vuoi, ma NON inoltrarlo e non farlo vedere a nessuno):\n':'Pesca il tuo bigliettino qui:\n')+link;
     return t;
   }
   $('#share').onclick=function(){ window.open(waLink(inviteText()),'_blank','noopener'); };
@@ -507,6 +507,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxzdojPNO9RNenIKsFuDNYU9C
   function openMe(id){
     var p=S.people.filter(function(x){return x.id===id;})[0]; if(!p) return;
     S.me=p; resetMe(); $('#me-title').textContent='Ciao '+p.name+'!';
+    $('#me-warn').innerHTML='⚠️ Il bigliettino si apre <u>una sola volta</u>. Assicurati che nessuno guardi lo schermo.';
     document.querySelectorAll('.pref').forEach(function(i){i.value='';});
     if(p.opened){ $('#me-pre').hidden=true; $('#me-actions').hidden=true; $('#tag').hidden=true; $('#me-err').textContent=errText('already'); var b=$('#me-actions'); b.hidden=false; $('#open1').hidden=true; }
     else { $('#tag').hidden=false; $('#open1').hidden=false;
@@ -514,18 +515,29 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxzdojPNO9RNenIKsFuDNYU9C
     }
     show('me');
   }
+  function openMeKey(key){
+    api('me',{key:key}).then(function(r){
+      if(!r.ok){ show('home'); $('#home-err').textContent='Link personale non valido: chiedi ad Akela di rimandartelo.'; return; }
+      S.me={id:r.id,name:r.name,key:key}; resetMe(); $('#me-title').textContent='Ciao '+r.name+'!';
+      $('#me-warn').innerHTML='🔗 Questo è il tuo <b>link personale</b>: puoi riaprire il bigliettino quando vuoi. Non inoltrarlo e assicurati che nessuno guardi lo schermo.';
+      $('#tag').hidden=false; $('#open1').hidden=false; $('#me-actions').hidden=false;
+      document.querySelectorAll('.pref').forEach(function(i){i.value='';});
+      api('getPrefs',{id:r.id}).then(function(g){ if(g.ok) document.querySelectorAll('.pref').forEach(function(i,k){ i.value=g.prefs[k]||''; }); });
+      show('me');
+    });
+  }
   $('#me-back').onclick=function(){ resetMe(); loadState().then(openPick); };
   $('#save-prefs').onclick=function(){
     var arr=Array.prototype.map.call(document.querySelectorAll('.pref'),function(i){return i.value;});
     $('#prefs-msg').textContent='…';
     api('savePrefs',{id:S.me.id,prefs:arr}).then(function(r){ $('#prefs-msg').textContent = r.ok?'Salvate! ✓':errText(r.error); });
   };
-  $('#open1').onclick=function(){ $('#me-actions').hidden=true; $('#me-confirm').hidden=false; };
+  $('#open1').onclick=function(){ if(S.me && S.me.key){ doReveal(); return; } $('#me-actions').hidden=true; $('#me-confirm').hidden=false; };
   $('#open-cancel').onclick=function(){ $('#me-actions').hidden=false; $('#me-confirm').hidden=true; };
-  $('#open2').onclick=function(){
-    $('#me-confirm').hidden=true; $('#me-err').textContent=''; $('#tag-in').classList.add('shake');
+  function doReveal(){
+    $('#me-confirm').hidden=true; $('#me-actions').hidden=true; $('#me-err').textContent=''; $('#tag-in').classList.add('shake');
     var t0=Date.now();
-    api('reveal',{id:S.me.id}).then(function(r){
+    (S.me.key ? api('revealKey',{key:S.me.key}) : api('reveal',{id:S.me.id})).then(function(r){
       var wait=Math.max(0,900-(Date.now()-t0));
       setTimeout(function(){
         $('#tag-in').classList.remove('shake');
@@ -541,7 +553,8 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxzdojPNO9RNenIKsFuDNYU9C
         confetti(); jingle(); clearTimeout(S.hideT); S.hideT=setTimeout(finishMe,45000);
       },wait);
     });
-  };
+  }
+  $('#open2').onclick=doReveal;
   function finishMe(){ resetMe(); S.me=null; loadState().then(function(){ show('home'); }); }
   $('#hide').onclick=finishMe;
 
@@ -585,7 +598,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxzdojPNO9RNenIKsFuDNYU9C
       if(p.opened){ var re=document.createElement('button'); re.type='button'; re.className='ghost small'; re.textContent='Riapri';
         re.title='Permette a '+p.giver+' di riaprire il bigliettino'; re.onclick=function(){ api('reopen',{pw:S.pw,id:p.giverId}).then(function(){loadAdmin(false);}); }; tools.appendChild(re); }
       var wa=document.createElement('button'); wa.type='button'; wa.className='wa small'; wa.textContent='WhatsApp';
-      wa.onclick=function(){ window.open(waLink(inviteText(p.giver,p.giverId)),'_blank','noopener'); }; tools.appendChild(wa);
+      wa.onclick=function(){ window.open(waLink(inviteText(p.giver,p.giverKey)),'_blank','noopener'); }; tools.appendChild(wa);
       tr.appendChild(a); tr.appendChild(m); tr.appendChild(b); tr.appendChild(tools); t.appendChild(tr);
     });
   }
@@ -670,7 +683,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxzdojPNO9RNenIKsFuDNYU9C
     $('#loading').hidden=true;
     if(r && r.ok){
       var m=location.search.match(/[?&]p=([a-z0-9]+)/);
-      if(m && S.configured && S.people.some(function(p){return p.id===m[1];})) openMe(m[1]);
+      if(m && S.configured) openMeKey(m[1]);
     }
     show($('#v-me').classList.contains('on')?'me':'home');
   });
